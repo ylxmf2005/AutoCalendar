@@ -2,8 +2,10 @@ import EventKit
 import Foundation
 import Dispatch
 
-@_cdecl("create_calendar_event")
-public func createCalendarEvent(title: UnsafePointer<CChar>, startDate: Double, endDate: Double, addAlarm: Bool, repeatWeekly: Bool) {
+// swiftc -emit-library -o apple_calendar.dylib apple_calendar.swift
+
+@_cdecl("create_apple_calendar_event")
+public func createAppleCalendarEvent(title: UnsafePointer<CChar>, startDate: Double, endDate: Double, addAlarm: Bool, repeatWeekly: Bool) {
     let eventStore = EKEventStore()
     let semaphore = DispatchSemaphore(value: 0)  
 

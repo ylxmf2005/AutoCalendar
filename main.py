@@ -1,121 +1,131 @@
 import ctypes
 import time
+import os
+import json
+import sys
+import argparse
+from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
-from dotenv import load_dotenv
-import os
-import json
+from IPython.display import Image, display, Audio, Markdown
+import base64
 
 load_dotenv()
 
-prompt = PromptTemplate.from_template('''
-{text}
-Your task is to extract all events from the given text and output them in JSON format.
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
+llm = ChatOpenAI(model="gpt-4o")
+
+parser = argparse.ArgumentParser(description='Process some integers.')
+group = parser.add_mutually_exclusive_group(required=True)
+group.add_argument('-T', '--text', type=str, help='Path to the input text file')
+group.add_argument('-I', '--image', type=str, help='Path to the input image file')
+parser.add_argument('-D', '--date', type=str, default='2024-09-02', help='Date to start the weekly recurring events')
+parser.add_argument('-C', '--calendar', type=str, default='Apple', help='Calender to add events to')
+
+
+args = parser.parse_args()
+
+template = '''
+Your task is to extract all events and output them in JSON format.
 Example:
 [
     {{
-        "title": "ELC2011 SEM002 DE402",
+        "event_name_and_venue": "ELC2011 SEM002 DE402",
         "start_date": "2024-09-02 18:30",
-        "end_date": "2024-09-02 21:20"
+        "end_date": "2024-09-02 21:20",
+        "repeat_weekly": true
+    }},
+    {{
+        "event_name_and_venue": "COMP2011 Quiz 1 N001/N002/N003",
+        "start_date": "2024-10-04 19:00",
+        "end_date": "2024-10-04 20:00",
+        "repeat_weekly": false
     }},
     ...
 ]
 
 Requirements:
-1. For the `title`, the result should be as concise as possible, extracting the event name and location (use the course code instead of the full name to shorten the title).
+1. The `event_name_and_venue` must include a concise event name and accurate event venue(location).
 2. The `start_date` and `end_date` should follow the "YYYY-MM-DD HH:MM" format.
-3. {date} is Monday, please start from {date}. That is, if an event starts on Monday, its start_date should be {date}. If an event starts on Tuesday, its start_date should be the next day of {date}, and so on.
-
+3. Please set `repeat_weekly` to true for weekly recurring events, and false for non-recurring events.
+4. {date} is Monday, please start from {date} for weekly recurring events. That is, if an weekly recurring event starts on Monday, its start_date should be {date}. If an weekly recurring event starts on Tuesday, its start_date should be the next day of {date}, and so on.
+5. For unknown start_date or TBA events, please ignore them. 
+6. If start_date is known but the end_date is unknown, please set the end_date to the same as the start_date.
 
 Please start your response with "[" and end with "]".
-''')
-
-# llm = ChatOpenAI(
-#     model='deepseek-chat', 
-#     openai_api_key=os.getenv('DEEPSEEK_API_KEY'), 
-#     openai_api_base='https://api.deepseek.com',
-#     max_tokens=4096
-# )
-
-llm = ChatOpenAI(model = "gpt-4")
-
-parser = StrOutputParser()
-chain = prompt | llm | parser
-
-text = '''
-Subject Code
-Subject Title
-Subject Group
-Component Code
-For Every (Week)
-Start Week
-End Week
-Day of Week
-Start Time
-End Time
-Venue
-Teaching Staff
-Remark
-BME1D02	WEARABLE HEALTHCARE AND FITNESS DEVICES FOR EVERYONE	101	LEC001	1	1	13	Thu	18:30	21:20	
-N003
-Cheung, James ChungWai, WONG, Duo	
-COMP2011	DATA STRUCTURES	1012	LAB004	1	2	13	Wed	17:30	18:20	
-PQ604A
-CAO, Yixin	
-COMP2011	DATA STRUCTURES	1012	LEC001	1	1	13	Tue	15:30	18:20	
-N002
-CAO, Yixin	
-COMP2012	DISCRETE MATHEMATICS	1011	LEC001	1	1	13	Thu	11:30	13:20	
-HJ202
-TANG, Kai Tai Jeff	
-COMP2012	DISCRETE MATHEMATICS	1011	TUT001	1	2	13	Mon	10:30	11:20	
-V312
-TANG, Kai Tai Jeff	
-COMP2021	OBJECT-ORIENTED PROGRAMMING	1011	LAB003	1	2	13	Mon	16:30	17:20	
-PQ604B
-YUEN, Kevin	
-COMP2021	OBJECT-ORIENTED PROGRAMMING	1011	LEC001	1	1	13	Tue	08:30	11:20	
-HJ202
-YUEN, Kevin	
-COMP2411	DATABASE SYSTEMS	1011	LAB004	1	2	13	Mon	15:30	16:20	
-PQ604A
-HUA, Wency, ZHOU, Alexander	
-COMP2411	DATABASE SYSTEMS	1011	LEC001	1	1	13	Fri	12:30	15:20	
-HJ202
-HUA, Wency, ZHOU, Alexander	
-ELC2011	ADVANCED ENGLISH READING AND WRITING SKILLS	139	SEM002	1	1	13	Mon	18:30	21:20	
-DE402
-FORRESTER Adam David	
 '''
 
-date = "2024-09-02"
-response = chain.invoke({"text": text, "date" : date})
-if response.startswith('```'):
-    response = '\n'.join(response.split('\n')[1:])
-if response.endswith('```'):
-    response = '\n'.join(response.split('\n')[:-1])
-print(response)
+parser = StrOutputParser()
+date = args.date
 
-input("Press Enter to continue...")
+def get_events(response):
+    if response.startswith('```'):
+        response = '\n'.join(response.split('\n')[1:])
+    if response.endswith('```'):
+        response = '\n'.join(response.split('\n')[:-1])
+    print(response)
 
-try:
-    events = json.loads(response)   
-except Exception as e:
-    print(e)
-    exit(0)
+    input("Press Enter to continue...")
+
+    try:
+        events = json.loads(response) 
+        return events  
+    except Exception as e:
+        print(e)
+        exit(0)
+
+def process_apple_calendar(response):
+    events = get_events(response)
     
-lib = ctypes.CDLL('./libCalendarEvent.dylib')
-lib.create_calendar_event.argtypes = [ctypes.c_char_p, ctypes.c_double, ctypes.c_double, ctypes.c_bool, ctypes.c_bool]
-lib.create_calendar_event.restype = None
+    lib = ctypes.CDLL('./calendar_api/apple_calendar.dylib')
+    lib.create_apple_calendar_event.argtypes = [ctypes.c_char_p, ctypes.c_double,     ctypes.c_double, ctypes.c_bool, ctypes.c_bool]
+    lib.create_apple_calendar_event.restype = None
 
-for event in events:
-    title = event['title'].encode('utf-8')
-    start_date = time.mktime(time.strptime(event['start_date'], "%Y-%m-%d %H:%M"))
-    end_date = time.mktime(time.strptime(event['end_date'], "%Y-%m-%d %H:%M"))
-    print(f"Creating event: {title} from {start_date} to {end_date}")
-    add_alarm = True
-    repeat_weekly = True
-    lib.create_calendar_event(title, start_date, end_date, add_alarm, repeat_weekly)
+    for event in events:
+        title = event['event_name_and_venue'].encode('utf-8')
+        start_date = time.mktime(time.strptime(event['start_date'],     "%Y-%m-%d %H:%M"))
+        end_date = time.mktime(time.strptime(event['end_date'], "%Y-%m-%d   %H:%M"))
+        print(f"Creating event: {title} from {start_date} to {end_date}")
+        add_alarm = True
+        repeat_weekly = event['repeat_weekly']
+        
+        lib.create_apple_calendar_event(title, start_date, end_date, add_alarm, repeat_weekly)
 
-input("Press Enter to exit...")
+    input("Press Enter to exit...")
+
+def process_text(text_path):
+    with open(text_path, 'r') as f:
+        text = f.read()
+        
+    prompt = PromptTemplate.from_template(text + '\n' + template)
+    chain = prompt | llm | parser
+
+    response = chain.invoke({"text": text, "date": date})
+    if args.calendar == 'Apple':
+        process_apple_calendar(response)
+
+def process_image(image_path):
+    display(Image(image_path))
+    
+    base64_image = encode_image(image_path)
+    messages = [
+        {"role": "user", "content": [
+            {"type": "text", "text": template.format(date=date)},
+            {"type": "image_url", "image_url": {
+                "url": f"data:image/png;base64,{base64_image}"}
+            }
+        ]}
+    ]
+    
+    response = llm.invoke(messages)
+    if args.calendar == 'Apple':
+        process_apple_calendar(response.content)
+
+if args.image:
+    process_image(args.image)
+else:
+    process_text(args.text)
