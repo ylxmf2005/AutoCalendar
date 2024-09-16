@@ -2,32 +2,16 @@ import ctypes
 import time
 import os
 import json
-import sys
-import argparse
 from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
-from IPython.display import Image, display, Audio, Markdown
+from IPython.display import Image, display
 import base64
 
 load_dotenv()
 
-def encode_image(image_path):
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode("utf-8")
-
-llm = ChatOpenAI(model="gpt-4o")
-
-parser = argparse.ArgumentParser(description='Process some integers.')
-group = parser.add_mutually_exclusive_group(required=True)
-group.add_argument('-T', '--text', type=str, help='Path to the input text file')
-group.add_argument('-I', '--image', type=str, help='Path to the input image file')
-parser.add_argument('-D', '--date', type=str, default='2024-09-02', help='Date to start the weekly recurring events')
-parser.add_argument('-C', '--calendar', type=str, default='Apple', help='Calender to add events to')
-
-
-args = parser.parse_args()
+llm = ChatOpenAI(model="gpt-4o", api_key=os.getenv("OPENAI_API_KEY"))
 
 template = '''
 Your task is to extract all events and output them in JSON format.
@@ -59,58 +43,50 @@ Requirements:
 Please start your response with "[" and end with "]".
 '''
 
-parser = StrOutputParser()
-date = args.date
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
 
 def get_events(response):
     if response.startswith('```'):
         response = '\n'.join(response.split('\n')[1:])
     if response.endswith('```'):
         response = '\n'.join(response.split('\n')[:-1])
-    print(response)
-
-    input("Press Enter to continue...")
-
+    
     try:
         events = json.loads(response) 
+        # print(f"Events: {events}")
         return events  
     except Exception as e:
-        print(e)
-        exit(0)
+        print(f"Error parsing response: {e}")
+        raise
 
-def process_apple_calendar(response):
-    events = get_events(response)
-    
+def submit_to_calendar(events, calendar = "Apple"):
     lib = ctypes.CDLL('./calendar_api/apple_calendar.dylib')
-    lib.create_apple_calendar_event.argtypes = [ctypes.c_char_p, ctypes.c_double,     ctypes.c_double, ctypes.c_bool, ctypes.c_bool]
+    lib.create_apple_calendar_event.argtypes = [ctypes.c_char_p, ctypes.c_double, ctypes.c_double, ctypes.c_bool, ctypes.c_bool]
     lib.create_apple_calendar_event.restype = None
 
     for event in events:
         title = event['event_name_and_venue'].encode('utf-8')
-        start_date = time.mktime(time.strptime(event['start_date'],     "%Y-%m-%d %H:%M"))
-        end_date = time.mktime(time.strptime(event['end_date'], "%Y-%m-%d   %H:%M"))
-        print(f"Creating event: {title} from {start_date} to {end_date}")
+        start_date = time.mktime(time.strptime(event['start_date'], "%Y-%m-%d %H:%M"))
+        end_date = time.mktime(time.strptime(event['end_date'], "%Y-%m-%d %H:%M"))
         add_alarm = True
         repeat_weekly = event['repeat_weekly']
         
+        print(f"Creating event: {title.decode()} from {start_date} to {end_date}")
         lib.create_apple_calendar_event(title, start_date, end_date, add_alarm, repeat_weekly)
 
-    input("Press Enter to exit...")
-
-def process_text(text_path):
+def process_text(text_path, date, calendar):
     with open(text_path, 'r') as f:
         text = f.read()
         
     prompt = PromptTemplate.from_template(text + '\n' + template)
+    parser = StrOutputParser()
     chain = prompt | llm | parser
-
     response = chain.invoke({"text": text, "date": date})
-    if args.calendar == 'Apple':
-        process_apple_calendar(response)
+    return response
 
-def process_image(image_path):
-    display(Image(image_path))
-    
+def process_image(image_path, date, calendar):
     base64_image = encode_image(image_path)
     messages = [
         {"role": "user", "content": [
@@ -120,12 +96,22 @@ def process_image(image_path):
             }
         ]}
     ]
-    
     response = llm.invoke(messages)
-    if args.calendar == 'Apple':
-        process_apple_calendar(response.content)
+    return response
 
-if args.image:
-    process_image(args.image)
-else:
-    process_text(args.text)
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('-T', '--text', type=str, help='Path to the input text file')
+    group.add_argument('-I', '--image', type=str, help='Path to the input image file')
+    parser.add_argument('-D', '--date', type=str, default='2024-09-02', help='Date to start the weekly recurring events')
+    parser.add_argument('-C', '--calendar', type=str, default='Apple', help='Calendar to add events to')
+
+    args = parser.parse_args()
+
+    if args.image:
+        process_image(args.image, args.date, args.calendar)
+    else:
+        process_text(args.text, args.date, args.calendar)
