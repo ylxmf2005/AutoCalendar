@@ -1,4 +1,13 @@
-<!DOCTYPE html>
+{% if events_id %}
+    <script>
+        var eventsId = "{{ events_id }}";
+    </script>
+{% else %}
+    <script>
+        var eventsId = null;
+    </script>
+{% endif %}
+
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -68,7 +77,8 @@
             <div class="mb-3">
                 <label for="calendarSelect" class="form-label">Select Calendar</label>
                 <select class="form-select" id="calendarSelect" name="calendar">
-                    <option value="Apple" selected>Apple Calendar</option>
+                    <option value="MacOS">Apple Calendar(MacOS)</option>
+                    <option value="iCloud" selected>Apple Calendar(iCloud)</option>
                     <option value="Google">Google Calendar</option>
                     <option value="Outlook">Outlook Calendar</option>
                 </select>
@@ -121,6 +131,7 @@
                     <div class="modal-footer" id="modalFooter" style="display:none;">
                         <form id="confirmForm" action="/confirm" method="POST">
                             <input type="hidden" id="responseInput" name="response">
+                            <input type="hidden" id="calendarInput" name="calendar">
                             <button type="submit" class="btn btn-success">Confirm and Submit to Calendar</button>
                         </form>
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -134,10 +145,73 @@
     </div>
 
     <script>
+        // Function to get URL parameters
+        function getParameterByName(name) {
+            name = name.replace(/[\[\]]/g, '\\$&');
+            let url = window.location.href;
+            let results = new RegExp('[?&]' + name + '(=([^&#]*)|&|#|$)').  exec(url);
+            if (!results) return null;
+            if (!results[2]) return '';
+            return decodeURIComponent(results[2].replace(/\+/g, ' '));
+        }
+
+        window.onload = function() {
+            let events_id = getParameterByName('events_id') || eventsId;
+            if (events_id) {
+                // Make AJAX call to get the events
+                fetch(`/get_events?events_id=${events_id}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Populate the table with events
+                            // Open the modal and show the events
+                            document.getElementById("loadingIndicator").    style.display = "none";  // Hide loading spinner
+                            document.getElementById("responseTable").style. display = "block";   // Show table with data
+                            document.getElementById("modalFooter").style.   display = "flex";     // Show confirm and cancel   buttons
+                            document.getElementById("responseModalLabel").  textContent = "Review and Edit Extracted Events";
+                        
+                            // Clear previous content
+                            let responseContent = document.getElementById   ("responseContent");
+                            responseContent.innerHTML = "";
+                        
+                            // Populate table with events from data.events  (data.events is an array)
+                            data.events.forEach((event, index) => {
+                                let row = `<tr>
+                                    <td contenteditable="true">${event. event_name_and_venue}</td>
+                                    <td contenteditable="true">${event. start_date}</td>
+                                    <td contenteditable="true">${event. end_date}</td>
+                                    <td contenteditable="true">${event. repeat_weekly ? 'Yes' : 'No'}</td>
+                                    <td><button type="button" class="btn    btn-danger btn-sm" onclick="deleteRow  (this)">Delete</button></td>
+                                </tr>`;
+                                responseContent.innerHTML += row;
+                            });
+                        
+                            // Add events data to hidden input for confirm  submission
+                            document.getElementById("responseInput").value =    JSON.stringify(data.events);
+
+                            // Open the modal
+                            new bootstrap.Modal(document.getElementById ("responseModal")).show();
+                        } else {
+                            showNotification("error", data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        showNotification("error", "An error occurred while  fetching events.");
+                    });
+            }
+        };
+    </script>
+
+
+    <script>
         // On user input form submit, show loading spinner and keep form visible
         document.getElementById("uploadForm").onsubmit = function (e) {
             e.preventDefault();
             let formData = new FormData(this);
+
+            // Store the selected calendar value in the hidden input of the confirm form
+            document.getElementById("calendarInput").value = document.getElementById("calendarSelect").value;
 
             // Show modal and loading indicator
             document.getElementById("loadingIndicator").style.display = "block"; 

@@ -1,4 +1,3 @@
-import ctypes
 import time
 import os
 import json
@@ -21,13 +20,13 @@ Example:
         "event_name_and_venue": "ELC2011 SEM002 DE402",
         "start_date": "2024-09-02 18:30",
         "end_date": "2024-09-02 21:20",
-        "repeat_weekly": true
+        "repeat_weekly": True
     }},
     {{
         "event_name_and_venue": "COMP2011 Quiz 1 N001/N002/N003",
         "start_date": "2024-10-04 19:00",
         "end_date": "2024-10-04 20:00",
-        "repeat_weekly": false
+        "repeat_weekly": False
     }},
     ...
 ]
@@ -61,22 +60,17 @@ def get_events(response):
         print(f"Error parsing response: {e}")
         raise
 
-def submit_to_calendar(events, calendar = "Apple"):
-    lib = ctypes.CDLL('./calendar_api/apple_calendar.dylib')
-    lib.create_apple_calendar_event.argtypes = [ctypes.c_char_p, ctypes.c_double, ctypes.c_double, ctypes.c_bool, ctypes.c_bool]
-    lib.create_apple_calendar_event.restype = None
+def submit_to_calendar(events, calendar = "iCloud"):
+    if calendar == "MacOS":
+        from calendar_api.macos_calendar import create_event
+    elif calendar == "iCloud":
+        from calendar_api.icloud_calendar import create_event
+    else:
+        raise ValueError(f"Unknown calendar: {calendar}")
+    
+    create_event(events)
 
-    for event in events:
-        title = event['event_name_and_venue'].encode('utf-8')
-        start_date = time.mktime(time.strptime(event['start_date'], "%Y-%m-%d %H:%M"))
-        end_date = time.mktime(time.strptime(event['end_date'], "%Y-%m-%d %H:%M"))
-        add_alarm = True
-        repeat_weekly = event['repeat_weekly']
-        
-        print(f"Creating event: {title.decode()} from {start_date} to {end_date}")
-        lib.create_apple_calendar_event(title, start_date, end_date, add_alarm, repeat_weekly)
-
-def process_text(text_path, date, calendar):
+def process_text(text_path, date):
     with open(text_path, 'r') as f:
         text = f.read()
         
@@ -86,7 +80,7 @@ def process_text(text_path, date, calendar):
     response = chain.invoke({"text": text, "date": date})
     return response
 
-def process_image(image_path, date, calendar):
+def process_image(image_path, date):
     base64_image = encode_image(image_path)
     messages = [
         {"role": "user", "content": [
@@ -107,7 +101,7 @@ if __name__ == "__main__":
     group.add_argument('-T', '--text', type=str, help='Path to the input text file')
     group.add_argument('-I', '--image', type=str, help='Path to the input image file')
     parser.add_argument('-D', '--date', type=str, default='2024-09-02', help='Date to start the weekly recurring events')
-    parser.add_argument('-C', '--calendar', type=str, default='Apple', help='Calendar to add events to')
+    parser.add_argument('-C', '--calendar', type=str, default='iCloud', help='Calendar to add events to')
 
     args = parser.parse_args()
 
