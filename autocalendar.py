@@ -20,13 +20,13 @@ Example:
         "event_name_and_venue": "ELC2011 SEM002 DE402",
         "start_date": "2024-09-02 18:30",
         "end_date": "2024-09-02 21:20",
-        "repeat_weekly": True
+        "repeat_weekly": true
     }},
     {{
         "event_name_and_venue": "COMP2011 Quiz 1 N001/N002/N003",
         "start_date": "2024-10-04 19:00",
         "end_date": "2024-10-04 20:00",
-        "repeat_weekly": False
+        "repeat_weekly": false
     }},
     ...
 ]
@@ -61,7 +61,7 @@ def get_events(response):
         raise
 
 def submit_to_calendar(events, calendar = "iCloud"):
-    if calendar == "MacOS":
+    if calendar == "macOS":
         from calendar_api.macos_calendar import create_event
     elif calendar == "iCloud":
         from calendar_api.icloud_calendar import create_event
@@ -80,6 +80,8 @@ def process_text(text_path, date):
     response = chain.invoke({"text": text, "date": date})
     return response
 
+import json
+
 def process_image(image_path, date):
     base64_image = encode_image(image_path)
     messages = [
@@ -90,8 +92,10 @@ def process_image(image_path, date):
             }
         ]}
     ]
-    response = llm.invoke(messages)
+    response = llm.invoke(messages).content  
+    print(response)
     return response
+
 
 if __name__ == "__main__":
     import argparse

@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify, flash, redirect, url
 import os
 import autocalendar  
 import json
+import uuid
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = './uploads'
@@ -45,36 +46,42 @@ def upload_file():
             response = json.loads(response)  # Ensure it's a Python list
         except json.JSONDecodeError as e:
             return jsonify({"error": "Invalid JSON format returned from processing."}), 400
-    
-    return jsonify(response)
+
+    # Store the events along with the calendar in temporary storage
+    events_id = str(uuid.uuid4())
+    app.config.setdefault('EVENTS_STORAGE', {})
+    app.config['EVENTS_STORAGE'][events_id] = {'events': response, 'calendar': calendar}
+
+    # Return the events and events_id to the frontend
+    return jsonify({'events': response, 'events_id': events_id})
 
 # Second step: Confirm and submit events to calendar
 @app.route('/confirm', methods=['POST'])
 def confirm_events():
     response = request.form.get('response')
+    calendar = request.form.get('calendar')
 
     if response:
         events = json.loads(response)  # Load the updated events from the hidden input
-                
-        calendar = request.form.get('calendar')
-        print(response)
+
+        print(f"Submitting events to calendar: {calendar}")
 
         try:
-            autocalendar.submit_to_calendar(events, calendar) 
+            autocalendar.submit_to_calendar(events, calendar)
             return jsonify({"success": True, "message": "Events successfully processed and added to the calendar!"})
         except Exception as e:
             return jsonify({"success": False, "message": f"Error submitting events to calendar: {e}"})
 
     return jsonify({"success": False, "message": "No events to submit."})
 
-import uuid  
-import base64 
-
 @app.route('/upload_from_shortcut', methods=['POST'])
 def upload_from_shortcut():
     file = request.files.get('image')
     calendar = request.form.get('calendar')
     start_date = request.form.get('startDate')
+
+    print("upload_from_shortcut")
+    print(f"Calendar: {calendar}, Start Date: {start_date}")
 
     if file:
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
@@ -85,32 +92,43 @@ def upload_from_shortcut():
             try:
                 response = json.loads(response)  # Ensure it's a Python list
             except json.JSONDecodeError:
+                print("Invalid JSON format returned from processing.")
                 return jsonify({"error": "Invalid JSON format returned from processing."}), 400
 
-        # Store the events in temporary storage with a unique ID
+        # Store the events along with the calendar in temporary storage
         events_id = str(uuid.uuid4())
-        # For simplicity, store in a global dictionary (use a database or cache in production)
         app.config.setdefault('EVENTS_STORAGE', {})
-        app.config['EVENTS_STORAGE'][events_id] = response
+        app.config['EVENTS_STORAGE'][events_id] = {'events': response, 'calendar': calendar}
 
         # Return the URL with the unique identifier
         url = url_for('index', events_id=events_id, _external=True)
+        
+        print(f"URL: {url}")
+
         return jsonify({'url': url}), 200
+
     else:
+        print("No image uploaded")
         return jsonify({'error': 'No image uploaded'}), 400
 
 @app.route('/get_events', methods=['GET'])
 def get_events():
     events_id = request.args.get('events_id')
     if events_id:
-        events = app.config.get('EVENTS_STORAGE', {}).get(events_id)
-        if events:
-            return jsonify({'success': True, 'events': events})
-        else:
-            return jsonify({'success': False, 'message': 'Invalid or expired events ID.'})
+        data = app.config.get('EVENTS_STORAGE', {}).get(events_id)
+        try:
+            if data:
+                events = data['events']
+                calendar = data.get('calendar', '')
+                return jsonify({'success': True, 'events': events, 'calendar': calendar})
+            else:
+                return jsonify({'success': False, 'message': 'Invalid or expired events ID.'})
+        except Exception as e:
+            print(f"Error getting events: {e}")
+            print(data)
+            return jsonify({'success': False, 'message': 'An error occurred while retrieving events.'})
     else:
         return jsonify({'success': False, 'message': 'No events ID provided.'})
-
 
 if __name__ == '__main__':
     app.run(debug=True)
